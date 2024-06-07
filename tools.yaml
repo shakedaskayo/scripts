@@ -1,82 +1,91 @@
 tools:
-  - name: aws-mfa-finder
-    description: Finds users who didn't activate MFA using AWS CLI
-    alias: aws-mfa-finder
+  - name: gh-action
+    description: A sample tool
+    alias: gh-actiongf
     type: dagger
     content: |
       query {
         container {
-          from(address: "amazonlinux:2") {
-            withExec(args: ["yum", "-y", "install", "python3", "jq", "awscli"]) {
-              withExec(args: ["sh", "-c", "aws iam list-users > users.json && cat users.json && echo 'Listed users'"]) {
-                stdout
-              }
-              withExec(args: ["sh", "-c", "jq -r '.Users[].UserName' users.json > usernames.txt && cat usernames.txt && echo 'Extracted usernames'"]) {
-                stdout
-              }
-              withExec(args: ["sh", "-c", "while read user; do echo Processing user: \\$user; mfa_count=\\$(aws iam list-mfa-devices --user-name \\$user | jq '.MFADevices | length'); if [ \\$? -ne 0 ]; then echo 'Error listing MFA devices for user: \\$user'; continue; fi; if [ \\$mfa_count -eq 0 ]; then echo User \\$user does not have MFA enabled; else echo User \\$user has MFA enabled; fi; done < usernames.txt"]) {
-                stdout
-              }
-            }
-          }
-        }
-      }
-    env:
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - AWS_SESSION_TOKEN
-      - AWS_DEFAULT_REGION
-
-  - name: ecr-repo-scan
-    description: Scans an ECR repository using AWS CLI
-    alias: ecr-repo-scan
-    type: dagger
-    content: |
-      query {
-        container {
-          from(address: "amazonlinux:2") {
-            withExec(args: ["yum", "-y", "install", "python3", "jq", "awscli"]) {
-              withExec(args: ["sh", "-c", "aws ecr describe-images --repository-name {{args.repo_name}} > images.json && cat images.json && echo 'Described images'"]) {
-                stdout
-              }
-              withExec(args: ["sh", "-c", "jq -r '.imageDetails[] | {imageTags, imageDigest, imagePushedAt}' images.json && echo 'Extracted image details'"]) {
-                stdout
-              }
+          from(address: "hello-world") {
+            withExec(args: ["/hello"]) {
+              stdout
             }
           }
         }
       }
     args:
-      repo_name:
-        description: ECR repository name
+      arg1:
+        description: Argument 1
+        default: default1
         required: true
+      arg2:
+        description: Argument 2
+        default: default2
     env:
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - AWS_SESSION_TOKEN
-      - AWS_DEFAULT_REGION
+      - GITHUB_TOKEN
 
-  - name: weekly-cost
-    description: Displays weekly cost on AWS using AWS CLI
-    alias: weekly-cost
+  - name: github-repos
+    description: List public repositories for the specified user
+    alias: githubrepos
     type: dagger
     content: |
       query {
-        container {
-          from(address: "amazonlinux:2") {
-            withExec(args: ["yum", "-y", "install", "python3", "jq", "awscli"]) {
-              withExec(args: ["sh", "-c", "now=\\$(date +%Y-%m-%d); start=\\$(date -d '7 days ago' +%Y-%m-%d); aws ce get-cost-and-usage --time-period Start=\\$start,End=\\$now --granularity DAILY --metrics UnblendedCost > cost.json && cat cost.json && echo 'Fetched cost data'"]) {
-                stdout
-              }
-              withExec(args: ["sh", "-c", "jq -r '.ResultsByTime[] | {TimePeriod, Total}' cost.json && echo 'Processed cost data'"]) {
-                stdout
-              }
-            }
+        http {
+          get(url: "https://api.github.com/users/{{args.username}}/repos") {
+            status
+            body
           }
         }
       }
+    args:
+      username:
+        description: GitHub username
+        required: true
     env:
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - AWS_SESSION_TOKEN
-      - AWS_DEFAULT_REGION
+      - GITHUB_TOKEN
+
+  - name: github-repo-size
+    description: Get the size of a specified repository
+    alias: githubreposize
+    type: dagger
+    content: |
+      query {
+        http {
+          get(url: "https://api.github.com/repos/{{args.owner}}/{{args.repo}}") {
+            status
+            body
+          }
+        }
+      }
+    args:
+      owner:
+        description: Owner of the repository
+        required: true
+      repo:
+        description: Name of the repository
+        required: true
+    env:
+      - GITHUB_TOKEN
+
+  - name: github-repo-languages
+    description: List programming languages used in a specified repository
+    alias: githubrepolanguages
+    type: dagger
+    content: |
+      query {
+        http {
+          get(url: "https://api.github.com/repos/{{args.owner}}/{{args.repo}}/languages") {
+            status
+            body
+          }
+        }
+      }
+    args:
+      owner:
+        description: Owner of the repository
+        required: true
+      repo:
+        description: Name of the repository
+        required: true
+    env:
+      - GITHUB_TOKEN
