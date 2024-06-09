@@ -1,91 +1,47 @@
 tools:
-  - name: gh-action
-    description: A sample tool
-    alias: gh-actiongf
-    type: dagger
+  - name: custom-python-script
+    description: A custom Python script
+    type: python
     content: |
-      query {
-        container {
-          from(address: "hello-world") {
-            withExec(args: ["/hello"]) {
-              stdout
-            }
-          }
-        }
-      }
+      import sys
+      print(f"Hello, {{.name}}!")
     args:
-      arg1:
-        description: Argument 1
-        default: default1
+      name:
+        description: Name to greet
         required: true
-      arg2:
-        description: Argument 2
-        default: default2
-    env:
-      - GITHUB_TOKEN
 
-  - name: github-repos
-    description: List public repositories for the specified user
-    alias: githubrepos
-    type: dagger
+  - name: custom-bash-script
+    description: A custom Bash script
+    type: bash
     content: |
-      query {
-        http {
-          get(url: "https://api.github.com/users/{{args.username}}/repos") {
-            status
-            body
-          }
-        }
-      }
+      echo "Hello, $name!"
     args:
-      username:
-        description: GitHub username
+      name:
+        description: Name to greet
         required: true
-    env:
-      - GITHUB_TOKEN
 
-  - name: github-repo-size
-    description: Get the size of a specified repository
-    alias: githubreposize
-    type: dagger
+  - name: custom-golang-script
+    description: A custom Golang script
+    type: golang
     content: |
-      query {
-        http {
-          get(url: "https://api.github.com/repos/{{args.owner}}/{{args.repo}}") {
-            status
-            body
-          }
-        }
-      }
-    args:
-      owner:
-        description: Owner of the repository
-        required: true
-      repo:
-        description: Name of the repository
-        required: true
-    env:
-      - GITHUB_TOKEN
+      package main
 
-  - name: github-repo-languages
-    description: List programming languages used in a specified repository
-    alias: githubrepolanguages
-    type: dagger
-    content: |
-      query {
-        http {
-          get(url: "https://api.github.com/repos/{{args.owner}}/{{args.repo}}/languages") {
-            status
-            body
-          }
-        }
+      import "fmt"
+
+      func main() {
+        fmt.Println("Hello, {{.name}}!")
       }
     args:
-      owner:
-        description: Owner of the repository
+      name:
+        description: Name to greet
         required: true
-      repo:
-        description: Name of the repository
+
+  - name: custom-nodejs-script
+    description: A custom Node.js script
+    type: nodejs
+    content: |
+      console.log('Hello, {{.name}}!');
+    args:
+      name:
+        description: Name to greet
         required: true
-    env:
-      - GITHUB_TOKEN
