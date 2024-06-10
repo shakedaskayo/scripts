@@ -2,6 +2,7 @@ tools:
   - name: terraform-get-module-variables
     description: Clone a Terraform module and discover its variables
     type: bash
+    alias: get-tf-module-vars
     content: |
       #!/bin/bash
       set -e
@@ -32,6 +33,7 @@ tools:
   - name: terraform-apply-module
     description: Apply a Terraform module with the given variables
     type: bash
+    alias: apply-tf-module
     content: |
       #!/bin/bash
       set -e
