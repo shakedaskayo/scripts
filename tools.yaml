@@ -67,3 +67,8 @@ tools:
       plan_only:
         description: Show only the plan
         required: false
+    env:
+      - "AWS_ACCESS_KEY_ID"
+      - "AWS_SECRET_ACCESS_KEY"
+      - "AWS_DEFAULT_REGION"
+      - "AWS_SESSION_TOKEN"
