@@ -2,6 +2,7 @@ tools:
   - name: custom-python-script
     description: A custom Python script
     type: python
+    alias: testing-py
     content: |
       import sys
       print(f"Hello, {{.name}}!")
@@ -13,6 +14,7 @@ tools:
   - name: custom-bash-script
     description: A custom Bash script
     type: bash
+    alias: testing-bash
     content: |
       echo "Hello, $name!"
     args:
@@ -23,6 +25,7 @@ tools:
   - name: custom-golang-script
     description: A custom Golang script
     type: golang
+    alias: testing-go
     content: |
       package main
 
@@ -39,6 +42,7 @@ tools:
   - name: custom-nodejs-script
     description: A custom Node.js script
     type: nodejs
+    alias: testing-node
     content: |
       console.log('Hello, {{.name}}!');
     args:
