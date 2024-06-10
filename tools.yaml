@@ -1,51 +1,67 @@
 tools:
-  - name: custom-python-script
-    description: A custom Python script
-    type: python
-    alias: testing-py
-    content: |
-      import sys
-      print(f"Hello, {{.name}}!")
-    args:
-      name:
-        description: Name to greet
-        required: true
-
-  - name: custom-bash-script
-    description: A custom Bash script
+  - name: terraform-get-module-variables
+    description: Clone a Terraform module and discover its variables
     type: bash
-    alias: testing-bash
     content: |
-      echo "Hello, $name!"
+      #!/bin/bash
+      set -e
+
+      # Clone the repository
+      echo "Cloning the Terraform module..."
+      git clone {{.module_url}} /tmp/module
+      cd /tmp/module
+
+      # Discover variables, their types, and descriptions
+      echo "Discovered variables and their types:"
+      grep -E '^variable' *.tf | while read -r line ; do
+        var_name=$(echo $line | awk -F ' ' '{print $2}' | sed 's/\"//g')
+        var_block=$(awk "/variable \"$var_name\"/,/}/" *.tf)
+        var_type=$(echo "$var_block" | grep 'type' | awk -F '=' '{print $2}' | tr -d ' "')
+        var_desc=$(echo "$var_block" | grep 'description' | awk -F '"' '{print $2}')
+        echo "Variable: $var_name"
+        echo "  Type: ${var_type:-unknown}"
+        echo "  Description: ${var_desc:-No description available}"
+        echo "---------------------------"
+      done
+
     args:
-      name:
-        description: Name to greet
+      module_url:
+        description: URL of the Terraform module to clone
         required: true
 
-  - name: custom-golang-script
-    description: A custom Golang script
-    type: golang
-    alias: testing-go
+  - name: terraform-apply-module
+    description: Apply a Terraform module with the given variables
+    type: bash
     content: |
-      package main
+      #!/bin/bash
+      set -e
 
-      import "fmt"
+      # Clone the repository
+      git clone {{.module_url}} /tmp/module
+      cd /tmp/module
 
-      func main() {
-        fmt.Println("Hello, {{.name}}!")
-      }
+      # Initialize Terraform
+      terraform init
+
+      # Create a temporary variables file
+      cat <<EOF > /tmp/terraform.tfvars.json
+      {{.variables}}
+      EOF
+
+      # Plan or apply the Terraform module
+      if [ "{{.plan_only}}" = "true" ]; then
+        terraform plan -var-file=/tmp/terraform.tfvars.json
+      else
+        terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
+      fi
+
     args:
-      name:
-        description: Name to greet
+      module_url:
+        description: URL of the Terraform module to clone
         required: true
-
-  - name: custom-nodejs-script
-    description: A custom Node.js script
-    type: nodejs
-    alias: testing-node
-    content: |
-      console.log('Hello, {{.name}}!');
-    args:
-      name:
-        description: Name to greet
+      variables:
+        description: Variables to set for the module in JSON format
         required: true
+      plan_only:
+        description: Show only the plan
+        required: false
