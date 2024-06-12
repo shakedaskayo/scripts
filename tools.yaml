@@ -4,20 +4,19 @@ tools:
     type: python
     content: |
       import os
+      import logging
       from langchain_core.messages import HumanMessage
       from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-      from langgraph.graph import END, StateGraph
+      from langgraph.graph import StateGraph, END
       from langchain_openai import ChatOpenAI
       from langchain_core.tools import tool
       from typing import List, Dict
       from typing_extensions import TypedDict
 
-      # Set API key from environment variable
       os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
       @tool
       def generate_tool_spec(description: str) -> str:
-          """Generate the YAML schema for a new tool based on the description provided."""
           examples = [
               {
                   "description": "A custom Python script",
@@ -103,7 +102,7 @@ tools:
                         }
 
                         var config Config
-                        if err := json.Unmarshal(data, &config); err != nil {
+                        if err := json.Unmarshal(data, &config); err {
                           log.Fatalf("failed to parse json: %v", err)
                         }
 
@@ -263,12 +262,15 @@ tools:
               {"recursion_limit": 150},
           )
           for s in events:
-              print(s)
-              print("----")
+              logging.info(s)
+              logging.info("----")
 
       if __name__ == "__main__":
-          description = "{{.description}}"
-          run_tool(description)
+          import argparse
+          parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
+          parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
+          args = parser.parse_args()
+          run_tool(args.description)
     dependencies: |
       langchain
       langchain_openai
