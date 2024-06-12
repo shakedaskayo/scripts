@@ -345,9 +345,7 @@ tools:
           return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
-          description = input("Enter the tool description: ")
-          logger.info("Clarifying the description...")
-          clarified_description = clarify_description(description)
+          clarified_description = clarify_description("{{.description}}")
 
           if "missing" in clarified_description.lower():
               logger.info("Please provide the missing information:")
