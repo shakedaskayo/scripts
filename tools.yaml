@@ -305,6 +305,3 @@ tools:
     env:
       - OPENAI_API_KEY
       - OPENAI_API_BASE
-      - AZURE_API_VERSION
-      - AZURE_API_BASE
-      - AZURE_API_KEY
