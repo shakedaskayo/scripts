@@ -7,6 +7,8 @@ tools:
       import logging
       import json
       import yaml
+      from typing import List
+      from pydantic import BaseModel, Field, ValidationError, validator
       from litellm import completion
 
       # Set up logging
@@ -260,7 +262,7 @@ tools:
             # Plan or apply the Terraform module
             if [ "{{.plan_only}}" = "true" ]; then
               terraform plan -var-file=/tmp/terraform.tfvars.json
-            else
+            else:
               terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
             fi
           args:
@@ -275,6 +277,22 @@ tools:
               required: false
       """
 
+      # Define your desired data structure using Pydantic
+      class ToolSchema(BaseModel):
+          tools: List[dict] = Field(description="List of tools")
+
+          @validator("tools", each_item=True)
+          def check_keys(cls, tool):
+              known_keys = {
+                  "name", "description", "type", "content", "dependencies",
+                  "args", "env", "with_files", "with_git_repo"
+              }
+              tool_keys = set(tool.keys())
+              unknown_keys = tool_keys - known_keys
+              if unknown_keys:
+                  raise ValueError(f"Unknown keys in schema: {unknown_keys}")
+              return tool
+
       # Function to clarify the tool description
       def clarify_description(description: str) -> str:
           response = completion(
@@ -285,7 +303,10 @@ tools:
                       "content": (
                           "You are a Product Manager. Your task is to clarify the tool description provided by the user. "
                           "Ensure all necessary information is included. If any information is missing, clearly state what is missing."
-                          "Guidelines are: 1) Each tool should have a clear output, the user needs to understand what he wants to achieve with the tool 2) the tool can interact with scripts etc, or use an interpreter like python to achieve the goal 3) You need to make sure you have knowledge with what the users asks to easily generate the tool"
+                          "Guidelines are: 1) Each tool should have a clear output, the user needs to understand what he wants to achieve with the tool. "
+                          "2) The tool can interact with scripts etc., or use an interpreter like python to achieve the goal. "
+                          "3) You need to make sure you have knowledge with what the users asks to easily generate the tool."
+                          f"Here are some examples of correctly structured YAML schemas:\n\n{EXAMPLES}"
                       )
                   },
                   {
@@ -298,22 +319,6 @@ tools:
           if "missing" in clarification.lower():
               return clarification  # Return clarification message if details are missing
           return description  # Return original description if nothing is missing
-
-      # Function to validate the schema
-      def validate_schema(schema: str) -> str:
-          known_keys = {
-              "tools", "name", "description", "type", "content", "dependencies",
-              "args", "env", "with_files", "with_git_repo"
-          }
-          schema_dict = yaml.safe_load(schema)
-          
-          for tool in schema_dict.get("tools", []):
-              tool_keys = set(tool.keys())
-              unknown_keys = tool_keys - known_keys
-              if unknown_keys:
-                  raise ValueError(f"Unknown keys in schema: {unknown_keys}")
-          
-          return schema
 
       # Function to generate the tool specification with examples
       def generate_tool_spec(description: str) -> str:
@@ -340,8 +345,9 @@ tools:
           return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
+          description = input("Enter the tool description: ")
           logger.info("Clarifying the description...")
-          clarified_description = clarify_description("{{.description}}")
+          clarified_description = clarify_description(description)
 
           if "missing" in clarified_description.lower():
               logger.info("Please provide the missing information:")
@@ -350,19 +356,20 @@ tools:
               logger.info("Generating tool specification...")
               tool_spec = generate_tool_spec(clarified_description)
               try:
-                  validated_spec = validate_schema(tool_spec)
-                  print(validated_spec)
-              except ValueError as e:
+                  validated_spec = ToolSchema.parse_raw(tool_spec)
+                  print(validated_spec.json())
+              except ValidationError as e:
                   logger.error(f"Validation failed: {e}")
                   logger.info("Regenerating tool specification with corrected information...")
                   clarified_description += f"\n\nNote: The following keys are invalid: {e}. Please correct them."
                   tool_spec = generate_tool_spec(clarified_description)
-                  validated_spec = validate_schema(tool_spec)
-                  print(validated_spec)
+                  validated_spec = ToolSchema.parse_raw(tool_spec)
+                  print(validated_spec.json())
 
     dependencies: |
       litellm
       pyyaml
+      pydantic
     args:
       description:
         description: Description of the tool to generate
