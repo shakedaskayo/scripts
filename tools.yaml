@@ -5,6 +5,8 @@ tools:
     content: |
       import os
       import logging
+      import json
+      import yaml
       from litellm import completion
 
       # Set up logging
@@ -258,7 +260,7 @@ tools:
             # Plan or apply the Terraform module
             if [ "{{.plan_only}}" = "true" ]; then
               terraform plan -var-file=/tmp/terraform.tfvars.json
-            else:
+            else
               terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
             fi
           args:
@@ -297,6 +299,22 @@ tools:
               return clarification  # Return clarification message if details are missing
           return description  # Return original description if nothing is missing
 
+      # Function to validate the schema
+      def validate_schema(schema: str) -> str:
+          known_keys = {
+              "tools", "name", "description", "type", "content", "dependencies",
+              "args", "env", "with_files", "with_git_repo"
+          }
+          schema_dict = yaml.safe_load(schema)
+          
+          for tool in schema_dict.get("tools", []):
+              tool_keys = set(tool.keys())
+              unknown_keys = tool_keys - known_keys
+              if unknown_keys:
+                  raise ValueError(f"Unknown keys in schema: {unknown_keys}")
+          
+          return schema
+
       # Function to generate the tool specification with examples
       def generate_tool_spec(description: str) -> str:
           response = completion(
@@ -322,8 +340,9 @@ tools:
           return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
+          description = input("Enter the tool description: ")
           logger.info("Clarifying the description...")
-          clarified_description = clarify_description("{{.description}}")
+          clarified_description = clarify_description(description)
 
           if "missing" in clarified_description.lower():
               logger.info("Please provide the missing information:")
@@ -331,10 +350,20 @@ tools:
           else:
               logger.info("Generating tool specification...")
               tool_spec = generate_tool_spec(clarified_description)
-              print(tool_spec)
+              try:
+                  validated_spec = validate_schema(tool_spec)
+                  print(validated_spec)
+              except ValueError as e:
+                  logger.error(f"Validation failed: {e}")
+                  logger.info("Regenerating tool specification with corrected information...")
+                  clarified_description += f"\n\nNote: The following keys are invalid: {e}. Please correct them."
+                  tool_spec = generate_tool_spec(clarified_description)
+                  validated_spec = validate_schema(tool_spec)
+                  print(validated_spec)
 
     dependencies: |
       litellm
+      pyyaml
     args:
       description:
         description: Description of the tool to generate
