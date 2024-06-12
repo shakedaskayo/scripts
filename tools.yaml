@@ -228,7 +228,7 @@ tools:
           }
 
       # Product Manager agent to clarify missing pieces
-      pm_model = os.getenv("PM_MODEL", "azure/gpt-4o")
+      pm_model = os.getenv("PM_MODEL", "azure/gpt4-o")
       product_manager = create_agent(
           pm_model,
           [generate_tool_spec],
