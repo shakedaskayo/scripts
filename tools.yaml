@@ -209,6 +209,9 @@ tools:
             #!/bin/bash
             set -e
 
+            # Install dependencies
+            apk add --no-cache git
+
             # Clone the repository
             echo "Cloning the Terraform module..."
             git clone {{.module_url}} /tmp/module
@@ -237,6 +240,9 @@ tools:
             #!/bin/bash
             set -e
 
+            # Install dependencies
+            apk add --no-cache git terraform
+
             # Clone the repository
             git clone {{.module_url}} /tmp/module
             cd /tmp/module
@@ -252,7 +258,7 @@ tools:
             # Plan or apply the Terraform module
             if [ "{{.plan_only}}" = "true" ]; then
               terraform plan -var-file=/tmp/terraform.tfvars.json
-            else
+            else:
               terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
             fi
           args:
@@ -277,6 +283,7 @@ tools:
                       "content": (
                           "You are a Product Manager. Your task is to clarify the tool description provided by the user. "
                           "Ensure all necessary information is included. If any information is missing, clearly state what is missing."
+                          "Guidelines are: 1) Each tool should have a clear output, the user needs to understand what he wants to achieve with the tool 2) the tool can interact with scripts etc, or use an interpreter like python to achieve the goal 3) You need to make sure you have knowledge with what the users asks to easily generate the tool"
                       )
                   },
                   {
@@ -285,7 +292,10 @@ tools:
                   }
               ]
           )
-          return response['choices'][0]['message']['content']
+          clarification = response['choices'][0]['message']['content']
+          if "missing" in clarification.lower():
+              return clarification  # Return clarification message if details are missing
+          return description  # Return original description if nothing is missing
 
       # Function to generate the tool specification with examples
       def generate_tool_spec(description: str) -> str:
@@ -300,6 +310,7 @@ tools:
                           "Stick strictly to the provided schema. Here are some examples of correctly structured YAML schemas:\n\n"
                           f"{EXAMPLES}\n\n"
                           "Use these examples to guide your schema generation. Your final answer should only include the YAML schema."
+                          "STICK TO THE EXAMPLES TO KNOW WHAT TO DO, DONT COME UP WITH KEYS YOU HAVE NEVER SEEN"
                       )
                   },
                   {
@@ -313,11 +324,14 @@ tools:
       if __name__ == "__main__":
           logger.info("Clarifying the description...")
           clarified_description = clarify_description("{{.description}}")
-          logger.info(f"Clarified Description: {clarified_description}")
 
-          logger.info("Generating tool specification...")
-          tool_spec = generate_tool_spec(clarified_description)
-          print(tool_spec)
+          if "missing" in clarified_description.lower():
+              logger.info("Please provide the missing information:")
+              print(clarified_description)
+          else:
+              logger.info("Generating tool specification...")
+              tool_spec = generate_tool_spec(clarified_description)
+              print(tool_spec)
 
     dependencies: |
       litellm
