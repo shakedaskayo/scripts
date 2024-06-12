@@ -5,291 +5,122 @@ tools:
     content: |
       import os
       import logging
-      from langchain_core.messages import HumanMessage, AIMessage
-      from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-      from langgraph.graph import StateGraph, END, START
-      from langchain_openai import ChatOpenAI
-      from langchain_core.tools import tool
-      from typing import List, Dict, Literal
-      from typing_extensions import TypedDict
-      from langchain_core.runnables import RunnableGenerator, RunnableConfig
+      from litellm import completion
 
+      # Set up logging
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+
+      # Ensure API key is set
       os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-      @tool
-      def generate_tool_spec(description: str) -> str:
-          """Generate the YAML schema for a new tool based on the description provided."""
-          examples = [
-              {
-                  "description": "A custom Python script",
-                  "yaml": """
-                  - name: custom-python-script
-                    description: A custom Python script
-                    type: python
-                    content: |
-                      import sys
-                      import json
-
-                      with open('/data/config.json') as f:
-                          config = json.load(f)
-
-                      print(f"Hello, {sys.argv[1]}!")
-                      print("Config settings:", config)
-                    dependencies: |
-                      requests==2.25.1
-                      numpy==1.21.0
-                    args:
-                      name:
-                        description: Name to greet
-                        required: true
-                    env:
-                      - PYTHON_ENV
-                    with_files:
-                      - path: /data/input.txt
-                        content: "https://example.com/path/to/input.txt"
-                      - path: /data/config.json
-                        content: |
-                          {
-                            "setting1": "value1",
-                            "setting2": "value2",
-                            "token": "{{.MY_SECRET_TOKEN}}"
-                          }
-                  """
-              },
-              {
-                  "description": "A custom Bash script",
-                  "yaml": """
-                  - name: custom-bash-script
-                    description: A custom Bash script
-                    type: bash
-                    content: |
-                      echo "Reading from file..."
-                      cat /data/input.txt
-                      echo "Hello, $name!"
-                    args:
-                      name:
-                        description: Name to greet
-                        required: true
-                    with_files:
-                      - path: /data/input.txt
-                        content: "Hello from input file!"
-                  """
-              },
-              {
-                  "description": "A custom Golang script",
-                  "yaml": """
-                  - name: custom-golang-script
-                    description: A custom Golang script
-                    type: golang
-                    content: |
-                      package main
-
-                      import (
-                        "fmt"
-                        "io/ioutil"
-                        "log"
-                        "encoding/json"
+      # Function to clarify the tool description
+      def clarify_description(description: str) -> str:
+          response = completion(
+              model="gpt-4o",
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a Product Manager. Your task is to clarify the tool description provided by the user. "
+                          "Ensure all necessary information is included. If any information is missing, clearly state what is missing."
                       )
-
-                      type Config struct {
-                        Setting1 string `json:"setting1"`
-                        Setting2 string `json:"setting2"`
-                        Token    string `json:"token"`
-                      }
-
-                      func main() {
-                        data, err := ioutil.ReadFile("/data/config.json")
-                        if err != nil {
-                          log.Fatalf("failed to read file: %v", err)
-                        }
-
-                        var config Config
-                        if err := json.Unmarshal(data, &config); err {
-                          log.Fatalf("failed to parse json: %v", err)
-                        }
-
-                        fmt.Println("Config settings:", config)
-                        fmt.Println("Hello, {{.name}}!")
-                      }
-                    dependencies: |
-                      module main
-                      go 1.16
-                      require (
-                        github.com/gorilla/mux v1.8.0
-                      )
-                    args:
-                      name:
-                        description: Name to greet
-                        required: true
-                    with_files:
-                      - path: /data/config.json
-                        content: |
-                          {
-                            "setting1": "value1",
-                            "setting2": "value2",
-                            "token": "{{.MY_SECRET_TOKEN}}"
-                          }
-                  """
-              },
-              {
-                  "description": "A custom Node.js script",
-                  "yaml": """
-                  - name: custom-nodejs-script
-                    description: A custom Node.js script
-                    type: nodejs
-                    content: |
-                      const fs = require('fs');
-
-                      fs.readFile('/data/config.json', 'utf8', (err, data) => {
-                        if (err) {
-                          console.error(err);
-                          return;
-                        }
-                        const config = JSON.parse(data);
-                        console.log("Config settings:", config);
-                      });
-
-                      console.log('Hello, {{.name}}!');
-                    dependencies: |
-                      {
-                        "name": "custom-nodejs-script",
-                        "version": "1.0.0",
-                        "dependencies": {
-                          "express": "^4.17.1"
-                        }
-                      }
-                    args:
-                      name:
-                        description: Name to greet
-                        required: true
-                    with_files:
-                      - path: /data/config.json
-                        content: |
-                          {
-                            "setting1": "value1",
-                            "setting2": "value2",
-                            "token": "{{.MY_SECRET_TOKEN}}"
-                          }
-                  """
-              }
-          ]
-
-          for example in examples:
-              if description.lower() in example["description"].lower():
-                  return example["yaml"]
-          return f"# Could not find a matching example for the description: {description}"
-
-      def create_agent(model_name, tools, system_message: str):
-          llm = ChatOpenAI(model=model_name, streaming=True)
-          prompt = ChatPromptTemplate.from_messages(
-              [
-                  (
-                      "system",
-                      "You are a helpful AI assistant, collaborating with other assistants."
-                      " Use the provided tools to progress towards answering the question."
-                      " If you are unable to fully answer, that's OK, another assistant with different tools "
-                      " will help where you left off. Execute what you can to make progress."
-                      " If you or any of the other assistants have the final answer or deliverable,"
-                      " prefix your response with FINAL ANSWER so the team knows to stop."
-                      " You have access to the following tools: {tool_names}.\n{system_message}",
-                  ),
-                  MessagesPlaceholder(variable_name="messages"),
+                  },
+                  {
+                      "role": "user",
+                      "content": description
+                  }
               ]
           )
-          prompt = prompt.partial(system_message=system_message)
-          prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
-          return prompt | llm.bind_tools(tools)
+          return response['choices'][0]['message']['content']
 
-      class AgentState(TypedDict):
-          messages: List[HumanMessage]
-          sender: str
-
-      import functools
-
-      def agent_node(state: AgentState, agent, name: str) -> Dict:
-          result = agent.invoke(state)
-          return {
-              "messages": [result],
-              "sender": name,
-          }
-
-      pm_model = os.getenv("PM_MODEL", "gpt-4")
-      product_manager = create_agent(
-          pm_model,
-          [generate_tool_spec],
-          system_message="Clarify the tool description and ensure all necessary information is provided."
-      )
-      pm_node = functools.partial(agent_node, agent=product_manager, name="Product Manager")
-
-      se_model = os.getenv("SE_MODEL", "gpt-4")
-      software_engineer = create_agent(
-          se_model,
-          [generate_tool_spec],
-          system_message="Generate the YAML schema for the tool based on the description."
-      )
-      se_node = functools.partial(agent_node, agent=software_engineer, name="Software Engineer")
-
-      workflow = StateGraph(AgentState)
-
-      workflow.add_node("Product Manager", pm_node)
-      workflow.add_node("Software Engineer", se_node)
-
-      def router(state: AgentState) -> Literal["Software Engineer", "__end__"]:
-          messages = state["messages"]
-          last_message = messages[-1]
-          if "FINAL ANSWER" in last_message.content:
-              return "__end__"
-          return "Software Engineer"
-
-      workflow.add_conditional_edges(
-          "Product Manager",
-          router,
-          {"Software Engineer": "Software Engineer", "__end__": END},
-      )
-
-      workflow.set_entry_point("Product Manager")
-      graph = workflow.compile()
-
-      async def run_tool(description: str):
-          async for event in graph.astream_events(
-              {
-                  "messages": [
-                      HumanMessage(
-                          content=description
+      # Function to generate the tool specification with examples
+      def generate_tool_spec(description: str) -> str:
+          response = completion(
+              model="gpt-4o",
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a Software Engineer. Your task is to generate the YAML schema for a tool based on the provided description. "
+                          "Make sure the schema is complete, follows best practices, and includes any necessary dependencies, arguments, and environment variables. "
+                          "Here are some examples of correctly structured YAML schemas:\n\n"
+                          "Example 1:\n"
+                          "- name: custom-python-script\n"
+                          "  description: A custom Python script\n"
+                          "  type: python\n"
+                          "  content: |\n"
+                          "    import sys\n"
+                          "    import json\n"
+                          "    with open('/data/config.json') as f:\n"
+                          "        config = json.load(f)\n"
+                          "    print(f\"Hello, {sys.argv[1]}!\")\n"
+                          "    print(\"Config settings:\", config)\n"
+                          "  dependencies: |\n"
+                          "    requests==2.25.1\n"
+                          "    numpy==1.21.0\n"
+                          "  args:\n"
+                          "    name:\n"
+                          "      description: Name to greet\n"
+                          "      required: true\n"
+                          "  env:\n"
+                          "    - PYTHON_ENV\n"
+                          "  with_files:\n"
+                          "    - path: /data/input.txt\n"
+                          "      content: \"https://example.com/path/to/input.txt\"\n"
+                          "    - path: /data/config.json\n"
+                          "      content: |\n"
+                          "        {\n"
+                          "          \"setting1\": \"value1\",\n"
+                          "          \"setting2\": \"value2\",\n"
+                          "          \"token\": \"{{.MY_SECRET_TOKEN}}\"\n"
+                          "        }\n\n"
+                          "Example 2:\n"
+                          "- name: custom-bash-script\n"
+                          "  description: A custom Bash script\n"
+                          "  type: bash\n"
+                          "  content: |\n"
+                          "    echo \"Reading from file...\"\n"
+                          "    cat /data/input.txt\n"
+                          "    echo \"Hello, $name!\"\n"
+                          "  args:\n"
+                          "    name:\n"
+                          "      description: Name to greet\n"
+                          "      required: true\n"
+                          "  with_files:\n"
+                          "    - path: /data/input.txt\n"
+                          "      content: \"Hello from input file!\"\n\n"
+                          "Use these examples to guide your schema generation."
                       )
-                  ],
-              },
-              version="v1",
-          ):
-              kind = event["event"]
-              if kind == "on_chat_model_stream":
-                  content = event["data"]["chunk"].content
-                  if content:
-                      print(content, end="|")
-              elif kind == "on_tool_start":
-                  print("--")
-                  print(f"Starting tool: {event['name']} with inputs: {event['data'].get('input')}")
-              elif kind == "on_tool_end":
-                  print(f"Done tool: {event['name']}")
-                  print(f"Tool output was: {event['data'].get('output')}")
-                  print("--")
+                  },
+                  {
+                      "role": "user",
+                      "content": description
+                  }
+              ]
+          )
+          return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
-          import asyncio
-          asyncio.run(run_tool("{{.description}}"))
+          import argparse
+
+          parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
+          parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
+          args = parser.parse_args()
+
+          logger.info("Clarifying the description...")
+          clarified_description = clarify_description(args.description)
+          logger.info(f"Clarified Description: {clarified_description}")
+
+          logger.info("Generating tool specification...")
+          tool_spec = generate_tool_spec(clarified_description)
+          logger.info(f"Generated Tool Specification:\n{tool_spec}")
+          print(tool_spec)
     dependencies: |
-      langchain
-      langchain_openai
-      langsmith
-      pandas
-      langchain_experimental
-      matplotlib
-      langgraph
-      langchain_core
+      litellm
     args:
       description:
         description: Description of the tool to generate
         required: true
     env:
       - OPENAI_API_KEY
-      - OPENAI_API_BASE
