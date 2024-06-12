@@ -1,74 +1,308 @@
 tools:
-  - name: terraform-get-module-variables
-    description: Clone a Terraform module and discover its variables
-    type: bash
-    alias: get-tf-module-vars
+  - name: tool-generator
+    description: A tool that generates other tools based on descriptions.
+    type: python
     content: |
-      #!/bin/bash
-      set -e
+      import json
+      import os
+      from langchain_core.messages import (
+          BaseMessage,
+          HumanMessage,
+      )
+      from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+      from langgraph.graph import END, StateGraph
+      from langchain_openai import ChatOpenAI
+      from langchain_core.tools import tool
+      from typing import List, Dict
+      from typing_extensions import TypedDict
 
-      # Clone the repository
-      echo "Cloning the Terraform module..."
-      git clone {{.module_url}} /tmp/module
-      cd /tmp/module
+      # Set API key from environment variable
+      os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-      # Discover variables, their types, and descriptions
-      echo "Discovered variables and their types:"
-      grep -E '^variable' *.tf | while read -r line ; do
-        var_name=$(echo $line | awk -F ' ' '{print $2}' | sed 's/\"//g')
-        var_block=$(awk "/variable \"$var_name\"/,/}/" *.tf)
-        var_type=$(echo "$var_block" | grep 'type' | awk -F '=' '{print $2}' | tr -d ' "')
-        var_desc=$(echo "$var_block" | grep 'description' | awk -F '"' '{print $2}')
-        echo "Variable: $var_name"
-        echo "  Type: ${var_type:-unknown}"
-        echo "  Description: ${var_desc:-No description available}"
-        echo "---------------------------"
-      done
+      # Helper function to create an agent
+      def create_agent(model_name, tools, system_message: str):
+          llm = ChatOpenAI(model=model_name)
+          prompt = ChatPromptTemplate.from_messages(
+              [
+                  (
+                      "system",
+                      "You are a helpful AI assistant, collaborating with other assistants."
+                      " Use the provided tools to progress towards answering the question."
+                      " If you are unable to fully answer, that's OK, another assistant with different tools "
+                      " will help where you left off. Execute what you can to make progress."
+                      " If you or any of the other assistants have the final answer or deliverable,"
+                      " prefix your response with FINAL ANSWER so the team knows to stop."
+                      " You have access to the following tools: {tool_names}.\n{system_message}",
+                  ),
+                  MessagesPlaceholder(variable_name="messages"),
+              ]
+          )
+          prompt = prompt.partial(system_message=system_message)
+          prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
+          return prompt | llm.bind_tools(tools)
 
+      @tool
+      def generate_tool_spec(description: str):
+          """Generate the YAML schema for a new tool based on the description provided."""
+          # Few-shot examples
+          examples = [
+              {
+                  "description": "A custom Python script",
+                  "yaml": """
+                  - name: custom-python-script
+                    description: A custom Python script
+                    type: python
+                    content: |
+                      import sys
+                      import json
+
+                      with open('/data/config.json') as f:
+                          config = json.load(f)
+
+                      print(f"Hello, {sys.argv[1]}!")
+                      print("Config settings:", config)
+                    dependencies: |
+                      requests==2.25.1
+                      numpy==1.21.0
+                    args:
+                      name:
+                        description: Name to greet
+                        required: true
+                    env:
+                      - PYTHON_ENV
+                    with_files:
+                      - path: /data/input.txt
+                        content: "https://example.com/path/to/input.txt"
+                      - path: /data/config.json
+                        content: |
+                          {
+                            "setting1": "value1",
+                            "setting2": "value2",
+                            "token": "{{.MY_SECRET_TOKEN}}"
+                          }
+                  """
+              },
+              {
+                  "description": "A custom Bash script",
+                  "yaml": """
+                  - name: custom-bash-script
+                    description: A custom Bash script
+                    type: bash
+                    content: |
+                      echo "Reading from file..."
+                      cat /data/input.txt
+                      echo "Hello, $name!"
+                    args:
+                      name:
+                        description: Name to greet
+                        required: true
+                    with_files:
+                      - path: /data/input.txt
+                        content: "Hello from input file!"
+                  """
+              },
+              {
+                  "description": "A custom Golang script",
+                  "yaml": """
+                  - name: custom-golang-script
+                    description: A custom Golang script
+                    type: golang
+                    content: |
+                      package main
+
+                      import (
+                        "fmt"
+                        "io/ioutil"
+                        "log"
+                        "encoding/json"
+                      )
+
+                      type Config struct {
+                        Setting1 string `json:"setting1"`
+                        Setting2 string `json:"setting2"`
+                        Token    string `json:"token"`
+                      }
+
+                      func main() {
+                        data, err := ioutil.ReadFile("/data/config.json")
+                        if err != nil {
+                          log.Fatalf("failed to read file: %v", err)
+                        }
+
+                        var config Config
+                        if err := json.Unmarshal(data, &config); err != nil {
+                          log.Fatalf("failed to parse json: %v", err)
+                        }
+
+                        fmt.Println("Config settings:", config)
+                        fmt.Println("Hello, {{.name}}!")
+                      }
+                    dependencies: |
+                      module main
+                      go 1.16
+                      require (
+                        github.com/gorilla/mux v1.8.0
+                      )
+                    args:
+                      name:
+                        description: Name to greet
+                        required: true
+                    with_files:
+                      - path: /data/config.json
+                        content: |
+                          {
+                            "setting1": "value1",
+                            "setting2": "value2",
+                            "token": "{{.MY_SECRET_TOKEN}}"
+                          }
+                  """
+              },
+              {
+                  "description": "A custom Node.js script",
+                  "yaml": """
+                  - name: custom-nodejs-script
+                    description: A custom Node.js script
+                    type: nodejs
+                    content: |
+                      const fs = require('fs');
+
+                      fs.readFile('/data/config.json', 'utf8', (err, data) => {
+                        if (err) {
+                          console.error(err);
+                          return;
+                        }
+                        const config = JSON.parse(data);
+                        console.log("Config settings:", config);
+                      });
+
+                      console.log('Hello, {{.name}}!');
+                    dependencies: |
+                      {
+                        "name": "custom-nodejs-script",
+                        "version": "1.0.0",
+                        "dependencies": {
+                          "express": "^4.17.1"
+                        }
+                      }
+                    args:
+                      name:
+                        description: Name to greet
+                        required: true
+                    with_files:
+                      - path: /data/config.json
+                        content: |
+                          {
+                            "setting1": "value1",
+                            "setting2": "value2",
+                            "token": "{{.MY_SECRET_TOKEN}}"
+                          }
+                  """
+              }
+          ]
+
+          # Generate the tool specification based on the description
+          generated_yaml = ""
+          for example in examples:
+              if description.lower() in example["description"].lower():
+                  generated_yaml = example["yaml"]
+                  break
+
+          if not generated_yaml:
+              generated_yaml = f"# Could not find a matching example for the description: {description}"
+
+          return generated_yaml
+
+      # Define the state of the graph
+      class AgentState(TypedDict):
+          messages: List[BaseMessage]
+          sender: str
+
+      # Define the agents
+      import functools
+
+      def agent_node(state: AgentState, agent, name: str) -> Dict:
+          result = agent.invoke(state)
+          return {
+              "messages": [result],
+              "sender": name,
+          }
+
+      # Product Manager agent to clarify missing pieces
+      pm_model = os.getenv("PM_MODEL", "gpt-4-1106-preview")
+      product_manager = create_agent(
+          pm_model,
+          [generate_tool_spec],
+          system_message="Clarify the tool description and ensure all necessary information is provided."
+      )
+      pm_node = functools.partial(agent_node, agent=product_manager, name="Product Manager")
+
+      # Software Engineer agent to create the YAML schema
+      se_model = os.getenv("SE_MODEL", "gpt-4-1106-preview")
+      software_engineer = create_agent(
+          se_model,
+          [generate_tool_spec],
+          system_message="Generate the YAML schema for the tool based on the description."
+      )
+      se_node = functools.partial(agent_node, agent=software_engineer, name="Software Engineer")
+
+      # Define the graph
+      workflow = StateGraph(AgentState)
+
+      workflow.add_node("Product Manager", pm_node)
+      workflow.add_node("Software Engineer", se_node)
+
+      # Define the edge logic
+      from typing import Literal
+
+      def router(state: AgentState) -> Literal["Software Engineer", "__end__"]:
+          messages = state["messages"]
+          last_message = messages[-1]
+          if "FINAL ANSWER" in last_message.content:
+              return "__end__"
+          return "Software Engineer"
+
+      workflow.add_conditional_edges(
+          "Product Manager",
+          router,
+          {"Software Engineer": "Software Engineer", "__end__": END},
+      )
+
+      workflow.set_entry_point("Product Manager")
+      graph = workflow.compile()
+
+      # Entry point for the tool
+      def run_tool(description: str):
+          events = graph.stream(
+              {
+                  "messages": [
+                      HumanMessage(
+                          content=description
+                      )
+                  ],
+              },
+              {"recursion_limit": 150},
+          )
+          for s in events:
+              print(s)
+              print("----")
+
+      if __name__ == "__main__":
+          description = "{{.description}}"
+          run_tool(description)
+    dependencies: |
+      langchain
+      langchain_openai
+      langsmith
+      pandas
+      langchain_experimental
+      matplotlib
+      langgraph
+      langchain_core
     args:
-      module_url:
-        description: URL of the Terraform module to clone
+      description:
+        description: Description of the tool to generate
         required: true
-
-  - name: terraform-apply-module
-    description: Apply a Terraform module with the given variables
-    type: bash
-    alias: apply-tf-module
-    content: |
-      #!/bin/bash
-      set -e
-
-      # Clone the repository
-      git clone {{.module_url}} /tmp/module
-      cd /tmp/module
-
-      # Initialize Terraform
-      terraform init
-
-      # Create a temporary variables file
-      cat <<EOF > /tmp/terraform.tfvars.json
-      {{.variables}}
-      EOF
-
-      # Plan or apply the Terraform module
-      if [ "{{.plan_only}}" = "true" ]; then
-        terraform plan -var-file=/tmp/terraform.tfvars.json
-      else
-        terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
-      fi
-
-    args:
-      module_url:
-        description: URL of the Terraform module to clone
-        required: true
-      variables:
-        description: Variables to set for the module in JSON format
-        required: true
-      plan_only:
-        description: Show only the plan
-        required: false
     env:
-      - "AWS_ACCESS_KEY_ID"
-      - "AWS_SECRET_ACCESS_KEY"
-      - "AWS_DEFAULT_REGION"
-      - "AWS_SESSION_TOKEN"
+      - OPENAI_API_KEY
+      - PM_MODEL
+      - SE_MODEL
