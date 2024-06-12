@@ -17,6 +17,7 @@ tools:
 
       @tool
       def generate_tool_spec(description: str) -> str:
+          """Generate the YAML schema for a new tool based on the description provided."""
           examples = [
               {
                   "description": "A custom Python script",
