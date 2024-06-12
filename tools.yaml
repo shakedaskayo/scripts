@@ -3,12 +3,8 @@ tools:
     description: A tool that generates other tools based on descriptions.
     type: python
     content: |
-      import json
       import os
-      from langchain_core.messages import (
-          BaseMessage,
-          HumanMessage,
-      )
+      from langchain_core.messages import HumanMessage
       from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
       from langgraph.graph import END, StateGraph
       from langchain_openai import ChatOpenAI
@@ -19,32 +15,9 @@ tools:
       # Set API key from environment variable
       os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-      # Helper function to create an agent
-      def create_agent(model_name, tools, system_message: str):
-          llm = ChatOpenAI(model=model_name)
-          prompt = ChatPromptTemplate.from_messages(
-              [
-                  (
-                      "system",
-                      "You are a helpful AI assistant, collaborating with other assistants."
-                      " Use the provided tools to progress towards answering the question."
-                      " If you are unable to fully answer, that's OK, another assistant with different tools "
-                      " will help where you left off. Execute what you can to make progress."
-                      " If you or any of the other assistants have the final answer or deliverable,"
-                      " prefix your response with FINAL ANSWER so the team knows to stop."
-                      " You have access to the following tools: {tool_names}.\n{system_message}",
-                  ),
-                  MessagesPlaceholder(variable_name="messages"),
-              ]
-          )
-          prompt = prompt.partial(system_message=system_message)
-          prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
-          return prompt | llm.bind_tools(tools)
-
       @tool
-      def generate_tool_spec(description: str):
+      def generate_tool_spec(description: str) -> str:
           """Generate the YAML schema for a new tool based on the description provided."""
-          # Few-shot examples
           examples = [
               {
                   "description": "A custom Python script",
@@ -200,24 +173,36 @@ tools:
               }
           ]
 
-          # Generate the tool specification based on the description
-          generated_yaml = ""
           for example in examples:
               if description.lower() in example["description"].lower():
-                  generated_yaml = example["yaml"]
-                  break
+                  return example["yaml"]
+          return f"# Could not find a matching example for the description: {description}"
 
-          if not generated_yaml:
-              generated_yaml = f"# Could not find a matching example for the description: {description}"
+      def create_agent(model_name, tools, system_message: str):
+          llm = ChatOpenAI(model=model_name)
+          prompt = ChatPromptTemplate.from_messages(
+              [
+                  (
+                      "system",
+                      "You are a helpful AI assistant, collaborating with other assistants."
+                      " Use the provided tools to progress towards answering the question."
+                      " If you are unable to fully answer, that's OK, another assistant with different tools "
+                      " will help where you left off. Execute what you can to make progress."
+                      " If you or any of the other assistants have the final answer or deliverable,"
+                      " prefix your response with FINAL ANSWER so the team knows to stop."
+                      " You have access to the following tools: {tool_names}.\n{system_message}",
+                  ),
+                  MessagesPlaceholder(variable_name="messages"),
+              ]
+          )
+          prompt = prompt.partial(system_message=system_message)
+          prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
+          return prompt | llm.bind_tools(tools)
 
-          return generated_yaml
-
-      # Define the state of the graph
       class AgentState(TypedDict):
-          messages: List[BaseMessage]
+          messages: List[HumanMessage]
           sender: str
 
-      # Define the agents
       import functools
 
       def agent_node(state: AgentState, agent, name: str) -> Dict:
@@ -227,8 +212,7 @@ tools:
               "sender": name,
           }
 
-      # Product Manager agent to clarify missing pieces
-      pm_model = os.getenv("PM_MODEL", "gpt-4o")
+      pm_model = os.getenv("PM_MODEL", "gpt-4")
       product_manager = create_agent(
           pm_model,
           [generate_tool_spec],
@@ -236,8 +220,7 @@ tools:
       )
       pm_node = functools.partial(agent_node, agent=product_manager, name="Product Manager")
 
-      # Software Engineer agent to create the YAML schema
-      se_model = os.getenv("SE_MODEL", "gpt-4o")
+      se_model = os.getenv("SE_MODEL", "gpt-4")
       software_engineer = create_agent(
           se_model,
           [generate_tool_spec],
@@ -245,13 +228,11 @@ tools:
       )
       se_node = functools.partial(agent_node, agent=software_engineer, name="Software Engineer")
 
-      # Define the graph
       workflow = StateGraph(AgentState)
 
       workflow.add_node("Product Manager", pm_node)
       workflow.add_node("Software Engineer", se_node)
 
-      # Define the edge logic
       from typing import Literal
 
       def router(state: AgentState) -> Literal["Software Engineer", "__end__"]:
@@ -270,7 +251,6 @@ tools:
       workflow.set_entry_point("Product Manager")
       graph = workflow.compile()
 
-      # Entry point for the tool
       def run_tool(description: str):
           events = graph.stream(
               {
