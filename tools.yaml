@@ -102,14 +102,8 @@ tools:
           return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
-          import argparse
-
-          parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
-          parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
-          args = parser.parse_args()
-
           logger.info("Clarifying the description...")
-          clarified_description = clarify_description(args.description)
+          clarified_description = clarify_description("{{.description}}")
           logger.info(f"Clarified Description: {clarified_description}")
 
           logger.info("Generating tool specification...")
