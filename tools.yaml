@@ -276,7 +276,7 @@ tools:
 
       if __name__ == "__main__":
           import asyncio
-          asyncio.run(run_tool("{{.description"))
+          asyncio.run(run_tool("{{.description}}"))
     dependencies: |
       langchain
       langchain_openai
