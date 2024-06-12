@@ -14,6 +14,14 @@ tools:
       # Ensure API key is set
       os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
+      # Path to the examples file
+      EXAMPLES_FILE_PATH = "/tmp/examples.yaml"
+
+      # Function to read examples from a file
+      def read_examples(file_path: str) -> str:
+          with open(file_path, "r") as file:
+              return file.read()
+
       # Function to clarify the tool description
       def clarify_description(description: str) -> str:
           response = completion(
@@ -36,6 +44,7 @@ tools:
 
       # Function to generate the tool specification with examples
       def generate_tool_spec(description: str) -> str:
+          examples = read_examples(EXAMPLES_FILE_PATH)
           response = completion(
               model="gpt-4o",
               messages=[
@@ -44,53 +53,9 @@ tools:
                       "content": (
                           "You are a Software Engineer. Your task is to generate the YAML schema for a tool based on the provided description. "
                           "Make sure the schema is complete, follows best practices, and includes any necessary dependencies, arguments, and environment variables. "
-                          "Here are some examples of correctly structured YAML schemas:\n\n"
-                          "Example 1:\n"
-                          "- name: custom-python-script\n"
-                          "  description: A custom Python script\n"
-                          "  type: python\n"
-                          "  content: |\n"
-                          "    import sys\n"
-                          "    import json\n"
-                          "    with open('/data/config.json') as f:\n"
-                          "        config = json.load(f)\n"
-                          "    print(f\"Hello, {sys.argv[1]}!\")\n"
-                          "    print(\"Config settings:\", config)\n"
-                          "  dependencies: |\n"
-                          "    requests==2.25.1\n"
-                          "    numpy==1.21.0\n"
-                          "  args:\n"
-                          "    name:\n"
-                          "      description: Name to greet\n"
-                          "      required: true\n"
-                          "  env:\n"
-                          "    - PYTHON_ENV\n"
-                          "  with_files:\n"
-                          "    - path: /data/input.txt\n"
-                          "      content: \"https://example.com/path/to/input.txt\"\n"
-                          "    - path: /data/config.json\n"
-                          "      content: |\n"
-                          "        {\n"
-                          "          \"setting1\": \"value1\",\n"
-                          "          \"setting2\": \"value2\",\n"
-                          "          \"token\": \"{{.MY_SECRET_TOKEN}}\"\n"
-                          "        }\n\n"
-                          "Example 2:\n"
-                          "- name: custom-bash-script\n"
-                          "  description: A custom Bash script\n"
-                          "  type: bash\n"
-                          "  content: |\n"
-                          "    echo \"Reading from file...\"\n"
-                          "    cat /data/input.txt\n"
-                          "    echo \"Hello, $name!\"\n"
-                          "  args:\n"
-                          "    name:\n"
-                          "      description: Name to greet\n"
-                          "      required: true\n"
-                          "  with_files:\n"
-                          "    - path: /data/input.txt\n"
-                          "      content: \"Hello from input file!\"\n\n"
-                          "Use these examples to guide your schema generation."
+                          "Stick strictly to the provided schema. Here are some examples of correctly structured YAML schemas:\n\n"
+                          f"{examples}\n\n"
+                          "Use these examples to guide your schema generation. Your final answer should only include the YAML schema."
                       )
                   },
                   {
@@ -102,14 +67,21 @@ tools:
           return response['choices'][0]['message']['content']
 
       if __name__ == "__main__":
+          import argparse
+
+          parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
+          parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
+          args = parser.parse_args()
+
           logger.info("Clarifying the description...")
-          clarified_description = clarify_description("{{.description}}")
+          clarified_description = clarify_description(args.description)
           logger.info(f"Clarified Description: {clarified_description}")
 
           logger.info("Generating tool specification...")
           tool_spec = generate_tool_spec(clarified_description)
           logger.info(f"Generated Tool Specification:\n{tool_spec}")
           print(tool_spec)
+
     dependencies: |
       litellm
     args:
@@ -119,3 +91,326 @@ tools:
     env:
       - OPENAI_API_KEY
       - OPENAI_API_BASE
+    with_files:
+      - path: /tmp/examples.yaml
+        content: |
+          tools:
+            - name: custom-python-script
+              description: A custom Python script
+              type: python
+              content: |
+                import sys
+                import json
+
+                with open('/data/config.json') as f:
+                    config = json.load(f)
+
+                print(f"Hello, {sys.argv[1]}!")
+                print("Config settings:", config)
+              dependencies: |
+                requests==2.25.1
+                numpy==1.21.0
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              env:
+                - PYTHON_ENV
+              with_files:
+                - path: /data/input.txt
+                  content: "https://example.com/path/to/input.txt"
+                - path: /data/config.json
+                  content: |
+                    {
+                      "setting1": "value1",
+                      "setting2": "value2",
+                      "token": "{{.MY_SECRET_TOKEN}}"
+                    }
+            - name: custom-bash-script
+              description: A custom Bash script
+              type: bash
+              content: |
+                echo "Reading from file..."
+                cat /data/input.txt
+                echo "Hello, $name!"
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              with_files:
+                - path: /data/input.txt
+                  content: "Hello from input file!"
+            - name: custom-golang-script
+              description: A custom Golang script
+              type: golang
+              content: |
+                package main
+
+                import (
+                  "fmt"
+                  "io/ioutil"
+                  "log"
+                  "encoding/json"
+                )
+
+                type Config struct {
+                  Setting1 string `json:"setting1"`
+                  Setting2 string `json:"setting2"`
+                  Token    string `json:"token"`
+                }
+
+                func main() {
+                  data, err := ioutil.ReadFile("/data/config.json")
+                  if err != nil {
+                    log.Fatalf("failed to read file: %v", err)
+                  }
+
+                  var config Config
+                  if err := json.Unmarshal(data, &config); err {
+                    log.Fatalf("failed to parse json: %v", err)
+                  }
+
+                  fmt.Println("Config settings:", config)
+                  fmt.Println("Hello, {{.name}}!")
+                }
+              dependencies: |
+                module main
+                go 1.16
+                require (
+                  github.com/gorilla/mux v1.8.0
+                )
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              with_files:
+                - path: /data/config.json
+                  content: |
+                    {
+                      "setting1": "value1",
+                      "setting2": "value2",
+                      "token": "{{.MY_SECRET_TOKEN}}"
+                    }
+            - name: custom-nodejs-script
+              description: A custom Node.js script
+              type: nodejs
+              content: |
+                const fs = require('fs');
+
+                fs.readFile('/data/config.json', 'utf8', (err, data) => {
+                  if (err) {
+                    console.error(err);
+                    return;
+                  }
+                  const config = JSON.parse(data);
+                  console.log("Config settings:", config);
+                });
+
+                console.log('Hello, {{.name}}!');
+              dependencies: |
+                {
+                  "name": "custom-nodejs-script",
+                  "version": "1.0.0",
+                  "dependencies": {
+                    "express": "^4.17.1"
+                  }
+                }
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              with_files:
+                - path: /data/config.json
+                  content: |
+                    {
+                      "setting1": "value1",
+                      "setting2": "value2",
+                      "token": "{{.MY_SECRET_TOKEN}}"
+                    }
+            - name: git-repo-example
+              description: An example tool that uses a git repository
+              type: bash
+              content: |
+                cd {{.repo_dir}} && ./run.sh
+              args:
+                repo_dir:
+                  description: Directory to clone the repository
+                  required: true
+              with_git_repo:
+                url: "https://github.com/example/repo.git"
+                branch: "main"
+                dir: "{{.repo_dir}}"
+              with_files:
+                - path: {{.repo_dir}}/config.json
+                  content: |
+                    {
+                      "setting1": "value1",
+                      "setting2": "value2",
+                      "token": "{{.MY_SECRET_TOKEN}}"
+                    }
+            - name: helm-deploy
+              description: Deploy a Helm chart
+              type: bash
+              content: |
+                helm repo add myrepo https://charts.example.com
+                helm repo update
+                helm upgrade --install myapp myrepo/mychart --namespace {{.namespace}} --values /data/values.yaml
+              args:
+                namespace:
+                  description: Kubernetes namespace to deploy to
+                  required: true
+              with_files:
+                - path: /data/values.yaml
+                  content: |
+                    replicaCount: 2
+                    image:
+                      repository: myrepo/myapp
+                      tag: "1.0.0"
+                      pullPolicy: IfNotPresent
+                    service:
+                      type: ClusterIP
+                      port: 80
+                    env:
+                      - name: MY_SECRET_TOKEN
+                        value: "{{.MY_SECRET_TOKEN}}"
+                    resources:
+                      limits:
+                        cpu: 100m
+                        memory: 128Mi
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+            - name: custom-python-script
+              description: A custom Python script
+              type: python
+              content_url: "https://example.com/path/to/python_script.py"
+              dependencies_url: "https://example.com/path/to/requirements.txt"
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              env:
+                - PYTHON_ENV
+            - name: custom-bash-script
+              description: A custom Bash script
+              type: bash
+              content: |
+                echo "Hello, $name!"
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+            - name: custom-golang-script
+              description: A custom Golang script
+              type: golang
+              content: |
+                package main
+
+                import "fmt"
+
+                func main() {
+                  fmt.Println("Hello, {{.name}}!")
+                }
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              dependencies: |
+                module main
+                go 1.16
+                require (
+                  github.com/gorilla/mux v1.8.0
+                )
+            - name: custom-nodejs-script
+              description: A custom Node.js script
+              type: nodejs
+              content: |
+                console.log('Hello, {{.name}}!');
+              args:
+                name:
+                  description: Name to greet
+                  required: true
+              dependencies: |
+                {
+                  "name": "custom-nodejs-script",
+                  "version": "1.0.0",
+                  "dependencies": {
+                    "express": "^4.17.1"
+                  }
+                }
+            - name: git-repo-example
+              description: An example tool that uses a git repository
+              type: bash
+              content: |
+                cd {{.repo_dir}} && ./run.sh
+              args:
+                repo_dir:
+                  description: Directory to clone the repository
+                  required: true
+              with_git_repo:
+                url: "https://github.com/example/repo.git"
+                branch: "main"
+                dir: "{{.repo_dir}}"
+            - name: terraform-get-module-variables
+              description: Clone a Terraform module and discover its variables
+              type: bash
+              content: |
+                #!/bin/bash
+                set -e
+
+                # Clone the repository
+                echo "Cloning the Terraform module..."
+                git clone {{.module_url}} /tmp/module
+                cd /tmp/module
+
+                # Discover variables, their types, and descriptions
+                echo "Discovered variables and their types:"
+                grep -E '^variable' *.tf | while read -r line ; do
+                  var_name=$(echo $line | awk -F ' ' '{print $2}' | sed 's/\"//g')
+                  var_block=$(awk "/variable \"$var_name\"/,/}/" *.tf)
+                  var_type=$(echo "$var_block" | grep 'type' | awk -F '=' '{print $2}' | tr -d ' "')
+                  var_desc=$(echo "$var_block" | grep 'description' | awk -F '"' '{print $2}')
+                  echo "Variable: $var_name"
+                  echo "  Type: ${var_type:-unknown}"
+                  echo "  Description: ${var_desc:-No description available}"
+                  echo "---------------------------"
+                done
+              args:
+                module_url:
+                  description: URL of the Terraform module to clone
+                  required: true
+            - name: terraform-apply-module
+              description: Apply a Terraform module with the given variables
+              type: bash
+              content: |
+                #!/bin/bash
+                set -e
+
+                # Clone the repository
+                git clone {{.module_url}} /tmp/module
+                cd /tmp/module
+
+                # Initialize Terraform
+                terraform init
+
+                # Create a temporary variables file
+                cat <<EOF > /tmp/terraform.tfvars.json
+                {{.variables}}
+                EOF
+
+                # Plan or apply the Terraform module
+                if [ "{{.plan_only}}" = "true" ]; then
+                  terraform plan -var-file=/tmp/terraform.tfvars.json
+                else:
+                  terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
+                fi
+              args:
+                module_url:
+                  description: URL of the Terraform module to clone
+                  required: true
+                variables:
+                  description: Variables to set for the module in JSON format
+                  required: true
+                plan_only:
+                  description: Show only the plan
+                  required: false
