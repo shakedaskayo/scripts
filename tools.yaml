@@ -5,13 +5,14 @@ tools:
     content: |
       import os
       import logging
-      from langchain_core.messages import HumanMessage
+      from langchain_core.messages import HumanMessage, AIMessage
       from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-      from langgraph.graph import StateGraph, END
+      from langgraph.graph import StateGraph, END, START
       from langchain_openai import ChatOpenAI
       from langchain_core.tools import tool
-      from typing import List, Dict
+      from typing import List, Dict, Literal
       from typing_extensions import TypedDict
+      from langchain_core.runnables import RunnableGenerator, RunnableConfig
 
       os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
@@ -179,7 +180,7 @@ tools:
           return f"# Could not find a matching example for the description: {description}"
 
       def create_agent(model_name, tools, system_message: str):
-          llm = ChatOpenAI(model=model_name)
+          llm = ChatOpenAI(model=model_name, streaming=True)
           prompt = ChatPromptTemplate.from_messages(
               [
                   (
@@ -233,8 +234,6 @@ tools:
       workflow.add_node("Product Manager", pm_node)
       workflow.add_node("Software Engineer", se_node)
 
-      from typing import Literal
-
       def router(state: AgentState) -> Literal["Software Engineer", "__end__"]:
           messages = state["messages"]
           last_message = messages[-1]
@@ -251,8 +250,8 @@ tools:
       workflow.set_entry_point("Product Manager")
       graph = workflow.compile()
 
-      def run_tool(description: str):
-          events = graph.stream(
+      async def run_tool(description: str):
+          async for event in graph.astream_events(
               {
                   "messages": [
                       HumanMessage(
@@ -260,18 +259,28 @@ tools:
                       )
                   ],
               },
-              {"recursion_limit": 150},
-          )
-          for s in events:
-              logging.info(s)
-              logging.info("----")
+              version="v1",
+          ):
+              kind = event["event"]
+              if kind == "on_chat_model_stream":
+                  content = event["data"]["chunk"].content
+                  if content:
+                      print(content, end="|")
+              elif kind == "on_tool_start":
+                  print("--")
+                  print(f"Starting tool: {event['name']} with inputs: {event['data'].get('input')}")
+              elif kind == "on_tool_end":
+                  print(f"Done tool: {event['name']}")
+                  print(f"Tool output was: {event['data'].get('output')}")
+                  print("--")
 
       if __name__ == "__main__":
+          import asyncio
           import argparse
           parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
           parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
           args = parser.parse_args()
-          run_tool(args.description)
+          asyncio.run(run_tool(args.description))
     dependencies: |
       langchain
       langchain_openai
