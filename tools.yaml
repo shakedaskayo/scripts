@@ -8,7 +8,7 @@ tools:
       import json
       import yaml
       from typing import List
-      from pydantic import BaseModel, Field, ValidationError, validator
+      from pydantic import BaseModel, Field, ValidationError, root_validator
       from litellm import completion
 
       # Set up logging
@@ -262,7 +262,7 @@ tools:
             # Plan or apply the Terraform module
             if [ "{{.plan_only}}" = "true" ]; then
               terraform plan -var-file=/tmp/terraform.tfvars.json
-            else:
+            else
               terraform apply -var-file=/tmp/terraform.tfvars.json -auto-approve
             fi
           args:
@@ -278,20 +278,31 @@ tools:
       """
 
       # Define your desired data structure using Pydantic
-      class ToolSchema(BaseModel):
-          tools: List[dict] = Field(description="List of tools")
+      class Tool(BaseModel):
+          name: str = Field(description="The name of the tool")
+          description: str = Field(description="A brief description of the tool")
+          type: str = Field(description="The type of the tool (e.g., python, bash)")
+          content: str = Field(description="The script content of the tool")
+          dependencies: str = Field(description="Dependencies for the tool", default="")
+          args: dict = Field(description="Arguments required by the tool", default={})
+          env: List[str] = Field(description="Environment variables for the tool", default=[])
+          with_files: List[dict] = Field(description="Files to include with the tool", default=[])
+          with_git_repo: dict = Field(description="Git repository details", default={})
 
-          @validator("tools", each_item=True)
-          def check_keys(cls, tool):
+          @root_validator(pre=True)
+          def check_keys(cls, values):
               known_keys = {
                   "name", "description", "type", "content", "dependencies",
                   "args", "env", "with_files", "with_git_repo"
               }
-              tool_keys = set(tool.keys())
+              tool_keys = set(values.keys())
               unknown_keys = tool_keys - known_keys
               if unknown_keys:
                   raise ValueError(f"Unknown keys in schema: {unknown_keys}")
-              return tool
+              return values
+
+      class ToolSchema(BaseModel):
+          tools: List[Tool] = Field(description="List of tools")
 
       # Function to clarify the tool description
       def clarify_description(description: str) -> str:
