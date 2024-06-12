@@ -276,11 +276,7 @@ tools:
 
       if __name__ == "__main__":
           import asyncio
-          import argparse
-          parser = argparse.ArgumentParser(description='Generate a tool specification based on description.')
-          parser.add_argument('--description', type=str, required=True, help='Description of the tool to generate')
-          args = parser.parse_args()
-          asyncio.run(run_tool(args.description))
+          asyncio.run(run_tool("{{.description"))
     dependencies: |
       langchain
       langchain_openai
