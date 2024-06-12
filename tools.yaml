@@ -1,6 +1,5 @@
 tools:
-  - name: tool-generator
-    alias: generate-tool
+  - name: generate-tool
     description: A tool that generates other tools based on descriptions.
     type: python
     content: |
