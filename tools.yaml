@@ -1,6 +1,6 @@
 tools:
   - name: generate-tool
-    description: A tool that generates other tools based on descriptions.
+    description: A tool that generates other tools based on a given description
     type: python
     content: |
       import os
